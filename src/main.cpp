@@ -1,6 +1,7 @@
 #include "ezSock.hpp"
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <mutex>
 #include <random>
@@ -9,6 +10,10 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 using namespace ezsock;
 
@@ -34,6 +39,22 @@ struct PosUpdate {
 // ============================================================
 // SERVER
 // ============================================================
+std::string get_local_ip() {
+    std::string ip = "127.0.0.1";
+    ifaddrs *ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) == -1) return ip;
+    for (ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (std::strcmp(ifa->ifa_name, "lo") == 0) continue;
+        sockaddr_in *sa = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
+        char buf[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf));
+        if (std::strcmp(buf, "127.0.0.1") != 0) { ip = buf; break; }
+    }
+    freeifaddrs(ifaddr);
+    return ip;
+}
+
 void run_server() {
     std::unordered_map<uint32_t, std::string> players;
     std::mutex players_mtx;
@@ -142,8 +163,11 @@ void run_server() {
     server.start_udp(8081);
     server.set_metadata_buffer_size(256);
 
+    std::string srv_ip = get_local_ip();
     std::cout << "\n=== ezSock Game Server ===" << std::endl;
-    std::cout << "TCP :8080 | UDP :8081" << std::endl;
+    std::cout << "  IP : " << srv_ip << std::endl;
+    std::cout << "  TCP: " << srv_ip << ":8080" << std::endl;
+    std::cout << "  UDP: " << srv_ip << ":8081" << std::endl;
     std::cout << "Admin: /kick <id> /ban <id> /unban <ip> /lobby /players" << std::endl;
     std::cout << "Console: 'quit' to stop, 'players' to list, 'lobby' to toggle\n" << std::endl;
 
@@ -166,7 +190,7 @@ void run_server() {
 // ============================================================
 // CLIENT
 // ============================================================
-void run_client(std::string name) {
+void run_client(std::string name, std::string server_ip = "127.0.0.1") {
     std::atomic<bool> connected{true};
     Client client;
 
@@ -200,7 +224,7 @@ void run_client(std::string name) {
         std::vector<std::byte> meta;
         for (char c : name) meta.push_back(static_cast<std::byte>(c));
 
-        client.join("127.0.0.1:8080", "127.0.0.1:8081", meta);
+        client.join(server_ip + ":8080", server_ip + ":8081", meta);
         client.start();
 
         std::cout << "Connected as " << name << "!\n>> " << std::flush;
@@ -250,14 +274,20 @@ int main(int argc, char** argv) {
     if (argc < 2) {
         std::cout << "Usage:\n"
                   << "  " << argv[0] << " server\n"
-                  << "  " << argv[0] << " client <name>\n";
+                  << "  " << argv[0] << " client <name> [server_ip]\n"
+                  << "\n"
+                  << "Examples:\n"
+                  << "  " << argv[0] << " server\n"
+                  << "  " << argv[0] << " client Alice\n"
+                  << "  " << argv[0] << " client Bob 192.168.1.100\n";
         return 1;
     }
     std::string mode(argv[1]);
     if (mode == "server") {
         run_server();
     } else if (mode == "client" && argc >= 3) {
-        run_client(argv[2]);
+        std::string ip = (argc >= 4) ? argv[3] : "127.0.0.1";
+        run_client(argv[2], ip);
     } else {
         std::cout << "Invalid arguments" << std::endl;
         return 1;
