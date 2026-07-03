@@ -1,5 +1,21 @@
 [
   {
+    "file": "src/ezSock.cpp",
+    "arguments": [
+      "g++",
+      "-std=c++23",
+      "-Iinclude",
+      "-Wall",
+      "-Wextra",
+      "-O2",
+      "-o",
+      "ezsock",
+      "src/ezSock.cpp"
+    ],
+    "directory": "/home/zizenn/Documents/code/ezSock",
+    "output": "ezsock"
+  },
+  {
     "file": "src/main.cpp",
     "arguments": [
       "g++",
@@ -9,11 +25,59 @@
       "-Wextra",
       "-O2",
       "-o",
-      "simpleIRC",
+      "ezsock",
       "src/main.cpp"
     ],
-    "directory": "/home/zizenn/Documents/code/simpleIRC",
-    "output": "simpleIRC"
+    "directory": "/home/zizenn/Documents/code/ezSock",
+    "output": "ezsock"
+  },
+  {
+    "file": "src/ezSock.cpp",
+    "arguments": [
+      "g++",
+      "-fPIC",
+      "-fstack-clash-protection",
+      "-O2",
+      "-U_FORTIFY_SOURCE",
+      "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST",
+      "-Wformat",
+      "-Wformat-security",
+      "-Werror=format-security",
+      "-fzero-call-used-regs=used-gpr",
+      "-fstrict-flex-arrays=1",
+      "-fstack-protector-strong",
+      "--param",
+      "-fno-strict-overflow",
+      "-fno-omit-frame-pointer",
+      "-mno-omit-leaf-frame-pointer",
+      "-std=c++23",
+      "-Iinclude",
+      "-Wall",
+      "-Wextra",
+      "-O2",
+      "-o",
+      "ezsock",
+      "src/ezSock.cpp",
+      "-U_FORTIFY_SOURCE",
+      "-D_FORTIFY_SOURCE=3",
+      "-B/nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/",
+      "-idirafter",
+      "/nix/store/15h9askp4k1lx44d9871wid23j2a8ijp-glibc-2.42-61-dev/include",
+      "-idirafter",
+      "/nix/store/qxaq7jz61a6zkr2mq49i0zvqip2m2jj8-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-gnu/15.2.0/include-fixed",
+      "-B/nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib",
+      "-frandom-seed=pydj1hycsb",
+      "-isystem",
+      "/nix/store/bvsy09r85z0q1m30p87s1bf4ikb0s84i-bash-interactive-5.3p9-dev/include",
+      "-isystem",
+      "/nix/store/d3bwqm6bymhy3pdgbvf7vxjqfp31m3j1-gnumake-4.4.1/include",
+      "-isystem",
+      "/nix/store/bvsy09r85z0q1m30p87s1bf4ikb0s84i-bash-interactive-5.3p9-dev/include",
+      "-isystem",
+      "/nix/store/d3bwqm6bymhy3pdgbvf7vxjqfp31m3j1-gnumake-4.4.1/include"
+    ],
+    "directory": "/home/zizenn/Documents/code/ezSock",
+    "output": "ezsock"
   },
   {
     "file": "src/main.cpp",
@@ -34,13 +98,13 @@
       "-fno-strict-overflow",
       "-fno-omit-frame-pointer",
       "-mno-omit-leaf-frame-pointer",
-      "-std=c++20",
+      "-std=c++23",
       "-Iinclude",
       "-Wall",
       "-Wextra",
       "-O2",
       "-o",
-      "simpleIRC",
+      "ezsock",
       "src/main.cpp",
       "-U_FORTIFY_SOURCE",
       "-D_FORTIFY_SOURCE=3",
@@ -50,13 +114,17 @@
       "-idirafter",
       "/nix/store/qxaq7jz61a6zkr2mq49i0zvqip2m2jj8-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-gnu/15.2.0/include-fixed",
       "-B/nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib",
-      "-frandom-seed=qfflawxdmi",
+      "-frandom-seed=pydj1hycsb",
       "-isystem",
       "/nix/store/bvsy09r85z0q1m30p87s1bf4ikb0s84i-bash-interactive-5.3p9-dev/include",
       "-isystem",
-      "/nix/store/bvsy09r85z0q1m30p87s1bf4ikb0s84i-bash-interactive-5.3p9-dev/include"
+      "/nix/store/d3bwqm6bymhy3pdgbvf7vxjqfp31m3j1-gnumake-4.4.1/include",
+      "-isystem",
+      "/nix/store/bvsy09r85z0q1m30p87s1bf4ikb0s84i-bash-interactive-5.3p9-dev/include",
+      "-isystem",
+      "/nix/store/d3bwqm6bymhy3pdgbvf7vxjqfp31m3j1-gnumake-4.4.1/include"
     ],
-    "directory": "/home/zizenn/Documents/code/simpleIRC",
-    "output": "simpleIRC"
+    "directory": "/home/zizenn/Documents/code/ezSock",
+    "output": "ezsock"
   }
 ]
