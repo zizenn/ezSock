@@ -35,13 +35,13 @@ struct PosUpdate {
 // SERVER
 // ============================================================
 void run_server() {
-    Server server;
     std::unordered_map<uint32_t, std::string> players;
     std::mutex players_mtx;
 
-    // --- Rate limiter (validator) ---
     std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> last_msg;
     std::mutex rate_mtx;
+
+    Server server;
     server.add_validator([&](uint32_t id, uint8_t, std::span<std::byte>) -> bool {
         auto now = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(rate_mtx);
@@ -167,8 +167,8 @@ void run_server() {
 // CLIENT
 // ============================================================
 void run_client(std::string name) {
-    Client client;
     std::atomic<bool> connected{true};
+    Client client;
 
     client.register_handler(MSG_CHAT, [](std::span<std::byte> data) {
         std::string msg(reinterpret_cast<const char*>(data.data()), data.size());
