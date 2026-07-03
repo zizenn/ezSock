@@ -31,6 +31,9 @@ void Server::start_tcp(uint16_t port) {
     if (!receiver_thread.joinable()) {
         receiver_thread = std::jthread([this](std::stop_token stop) { receiver_loop(stop); });
     }
+    if (!sender_thread.joinable()) {
+        sender_thread = std::jthread([this](std::stop_token stop) { sender_loop(stop); });
+    }
 }
 
 void Server::start_udp(uint16_t port) {
@@ -49,6 +52,9 @@ void Server::start_udp(uint16_t port) {
 
     if (!receiver_thread.joinable()) {
         receiver_thread = std::jthread([this](std::stop_token stop) { receiver_loop(stop); });
+    }
+    if (!sender_thread.joinable()) {
+        sender_thread = std::jthread([this](std::stop_token stop) { sender_loop(stop); });
     }
 }
 
@@ -189,36 +195,42 @@ void Server::receiver_loop(std::stop_token stop) {
         }
 
         {
-            std::lock_guard<std::mutex> lock(clients_mutex);
-            for (auto it = tcp_clients.begin(); it != tcp_clients.end(); ) {
-                uint32_t id = it->first;
-                socket_t fd = it->second;
-                if (FD_ISSET(fd, &read_fds)) {
-                    int n = ::recv(fd, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
-                    if (n <= 0) {
-                        close_fd(fd);
-                        {
-                            std::lock_guard<std::mutex> lock(clients_mutex);
+            std::vector<std::pair<uint32_t, std::vector<std::byte>>> pending;
+            std::vector<uint32_t> disconnected;
+            {
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                for (auto it = tcp_clients.begin(); it != tcp_clients.end(); ) {
+                    uint32_t id = it->first;
+                    socket_t fd = it->second;
+                    if (FD_ISSET(fd, &read_fds)) {
+                        int n = ::recv(fd, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+                        if (n <= 0) {
+                            close_fd(fd);
                             udp_clients.erase(id);
+                            it = tcp_clients.erase(it);
+                            disconnected.push_back(id);
+                            continue;
                         }
-                        if (disconnect_callback) disconnect_callback(id);
-                        it = tcp_clients.erase(it);
-                        continue;
+                        if (n > 0) {
+                            pending.emplace_back(id, std::vector<std::byte>(buffer.begin(), buffer.begin() + n));
+                        }
                     }
-
-                    if (n < 1) continue;
-                    uint8_t type = static_cast<uint8_t>(buffer[0]);
-                    std::span<std::byte> payload(buffer.data() + 1, n - 1);
-                    bool allowed = true;
-                    for (const auto& v : validators) {
-                        if (!v(id, type, payload)) { allowed = false; break; }
-                    }
-                    if (allowed) {
-                        auto hit = handlers.find(type);
-                        if (hit != handlers.end()) hit->second(id, payload);
-                    }
-                } else {
                     ++it;
+                }
+            }
+            for (uint32_t id : disconnected) {
+                if (disconnect_callback) disconnect_callback(id);
+            }
+            for (auto& [id, data] : pending) {
+                uint8_t type = static_cast<uint8_t>(data[0]);
+                std::span<std::byte> payload(data.data() + 1, data.size() - 1);
+                bool allowed = true;
+                for (const auto& v : validators) {
+                    if (!v(id, type, payload)) { allowed = false; break; }
+                }
+                if (allowed) {
+                    auto hit = handlers.find(type);
+                    if (hit != handlers.end()) hit->second(id, payload);
                 }
             }
         }
@@ -310,6 +322,14 @@ void Client::join(std::string_view tcp_addr, std::string_view udp_addr, std::spa
         ::send(tcp_sock, reinterpret_cast<const char*>(metadata.data()), metadata.size(), 0);
     }
     udp_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in client_udp_bind{};
+    client_udp_bind.sin_family = AF_INET;
+    client_udp_bind.sin_port = htons(0);
+    client_udp_bind.sin_addr.s_addr = INADDR_ANY;
+    if (::bind(udp_sock, (struct sockaddr*)&client_udp_bind, sizeof(client_udp_bind)) == -1) {
+        close_fd(udp_sock);
+        throw_error("UDP bind failed");
+    }
     server_udp_addr.sin_family = AF_INET;
     server_udp_addr.sin_port = htons(u_port);
     inet_pton(AF_INET, u_ip.c_str(), &server_udp_addr.sin_addr);
@@ -346,16 +366,37 @@ void Client::start(size_t buffer_size) {
     receiver_thread = std::jthread([this, buffer_size](std::stop_token stop) {
         std::vector<std::byte> buf(buffer_size);
         while (!stop.stop_requested()) {
-            int n = ::recv(tcp_sock, reinterpret_cast<char*>(buf.data()), buf.size(), 0);
-            if (n <= 0) {
-                if (disconnect_callback) disconnect_callback();
-                return;
-            }
-            if (n > 0) {
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            socket_t max_fd = 0;
+            FD_SET(tcp_sock, &read_fds);
+            max_fd = std::max(max_fd, tcp_sock);
+            FD_SET(udp_sock, &read_fds);
+            max_fd = std::max(max_fd, udp_sock);
+
+            timeval timeout{0, 100000};
+            int activity = select(static_cast<int>(max_fd + 1), &read_fds, nullptr, nullptr, &timeout);
+            if (activity <= 0) continue;
+
+            if (FD_ISSET(tcp_sock, &read_fds)) {
+                int n = ::recv(tcp_sock, reinterpret_cast<char*>(buf.data()), buf.size(), 0);
+                if (n <= 0) {
+                    if (disconnect_callback) disconnect_callback();
+                    return;
+                }
                 uint8_t type = static_cast<uint8_t>(buf[0]);
                 if (type == 0 && n >= 5) {
                     std::memcpy(&client_id, buf.data() + 1, 4);
                 } else {
+                    std::span<std::byte> payload(buf.data() + 1, n - 1);
+                    if (handlers.contains(type)) handlers[type](payload);
+                }
+            }
+
+            if (FD_ISSET(udp_sock, &read_fds)) {
+                int n = ::recv(udp_sock, reinterpret_cast<char*>(buf.data()), buf.size(), 0);
+                if (n > 0) {
+                    uint8_t type = static_cast<uint8_t>(buf[0]);
                     std::span<std::byte> payload(buf.data() + 1, n - 1);
                     if (handlers.contains(type)) handlers[type](payload);
                 }

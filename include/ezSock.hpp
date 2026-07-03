@@ -164,6 +164,14 @@ public:
     broadcast_internal(Protocol::UDP, exclude, type, std::as_bytes(std::span(&data, 1)));
   }
 
+  void broadcast_except_tcp(std::span<const uint32_t> exclude, uint8_t type, std::string_view msg) {
+    broadcast_internal(Protocol::TCP, exclude, type, std::as_bytes(std::span(msg.data(), msg.size())));
+  }
+
+  void broadcast_except_udp(std::span<const uint32_t> exclude, uint8_t type, std::string_view msg) {
+    broadcast_internal(Protocol::UDP, exclude, type, std::as_bytes(std::span(msg.data(), msg.size())));
+  }
+
   void broadcast_tcp(uint8_t type, std::string_view msg) {
     broadcast_internal(Protocol::TCP, {}, type, std::as_bytes(std::span(msg.data(), msg.size())));
   }
@@ -205,15 +213,15 @@ private:
   std::mutex queue_mutex;
   std::condition_variable queue_cv;
   
-  std::jthread receiver_thread;
-  std::jthread sender_thread;
-  
   std::function<void(uint32_t, std::span<std::byte>)> connect_callback;
   std::function<void(uint32_t)> disconnect_callback;
   
   uint32_t next_id = 0;
   bool lobby_open = true;
   size_t metadata_buffer_size = 1024;
+  
+  std::jthread receiver_thread;
+  std::jthread sender_thread;
 
 public:
   std::unordered_set<std::string> banned_ips;
@@ -252,7 +260,6 @@ public:
 
 private:
   void send_internal(Protocol proto, uint8_t type, std::span<const std::byte> data);
-  void receiver_loop(std::stop_token stop, size_t buffer_size);
 
   socket_t tcp_sock = invalid_fd;
   socket_t udp_sock = invalid_fd;
