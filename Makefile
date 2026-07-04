@@ -17,14 +17,12 @@ MINIUPNP_OBJ = $(patsubst $(MINIUPNP_DIR)/%.c,$(OBJ_DIR)/$(MINIUPNP_DIR)/%.o,$(M
 ifeq ($(OS),Windows_NT)
   TARGET = $(BUILD_DIR)/ezsock.exe
   LIBS = -lws2_32
-  $(shell if not exist "$(subst /,\,$(OBJ_DIR)\$(SRC_DIR))" mkdir "$(subst /,\,$(OBJ_DIR)\$(SRC_DIR))")
-  $(shell if not exist "$(subst /,\,$(OBJ_DIR)\$(MINIUPNP_DIR))" mkdir "$(subst /,\,$(OBJ_DIR)\$(MINIUPNP_DIR))")
-  $(shell if not exist "$(subst /,\,$(BUILD_DIR))" mkdir "$(subst /,\,$(BUILD_DIR))")
 else
   TARGET = $(BUILD_DIR)/ezsock
   LIBS = -lpthread
-  $(shell mkdir -p $(OBJ_DIR)/$(SRC_DIR) $(OBJ_DIR)/$(MINIUPNP_DIR) $(BUILD_DIR))
 endif
+
+$(shell mkdir -p $(OBJ_DIR)/$(SRC_DIR) $(OBJ_DIR)/$(MINIUPNP_DIR) $(BUILD_DIR))
 
 all: $(TARGET)
 
@@ -37,12 +35,7 @@ $(OBJ_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.cpp
 $(OBJ_DIR)/$(MINIUPNP_DIR)/%.o: $(MINIUPNP_DIR)/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-ifneq ($(OS),Windows_NT)
 clean:
 	rm -rf $(BUILD_DIR)
-else
-clean:
-	-if exist "$(BUILD_DIR)" rmdir /s /q "$(BUILD_DIR)"
-endif
 
 .PHONY: all clean

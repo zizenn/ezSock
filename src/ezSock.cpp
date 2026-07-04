@@ -27,7 +27,7 @@ void Server::start_tcp(uint16_t port) {
     if (tcp_listener == invalid_fd) throw_error("TCP listener creation failed");
 
     int off = 0;
-    ::setsockopt(tcp_listener, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+    ::setsockopt(tcp_listener, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&off, sizeof(off));
 
     int opt = 1;
     ::setsockopt(tcp_listener, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
@@ -60,7 +60,7 @@ void Server::start_udp(uint16_t port) {
     if (udp_socket == invalid_fd) throw_error("UDP socket creation failed");
 
     int off = 0;
-    ::setsockopt(udp_socket, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+    ::setsockopt(udp_socket, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&off, sizeof(off));
 
     sockaddr_in6 addr{};
     addr.sin6_family = AF_INET6;
@@ -161,7 +161,7 @@ void Server::receiver_loop(std::stop_token stop) {
             socket_t client_fd = ::accept(tcp_listener, nullptr, nullptr);
             if (client_fd != invalid_fd) {
                 timeval send_tv{0, 100000};
-                ::setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &send_tv, sizeof(send_tv));
+                ::setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&send_tv, sizeof(send_tv));
                 sockaddr_storage peer{};
                 socklen_t peer_len = sizeof(peer);
                 if (::getpeername(client_fd, (struct sockaddr*)&peer, &peer_len) == 0) {
