@@ -160,6 +160,8 @@ void Server::receiver_loop(std::stop_token stop) {
             }
             socket_t client_fd = ::accept(tcp_listener, nullptr, nullptr);
             if (client_fd != invalid_fd) {
+                timeval send_tv{0, 100000};
+                ::setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &send_tv, sizeof(send_tv));
                 sockaddr_storage peer{};
                 socklen_t peer_len = sizeof(peer);
                 if (::getpeername(client_fd, (struct sockaddr*)&peer, &peer_len) == 0) {
