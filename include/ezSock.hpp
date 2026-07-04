@@ -17,6 +17,7 @@ using socket_t = int;
 #include <condition_variable>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <span>
@@ -203,7 +204,7 @@ private:
   socket_t udp_socket = invalid_fd;
   
   std::unordered_map<uint32_t, socket_t> tcp_clients;
-  std::unordered_map<uint32_t, sockaddr_in> udp_clients;
+  std::unordered_map<uint32_t, sockaddr_storage> udp_clients;
   
   std::mutex clients_mutex;
   std::unordered_map<uint8_t, std::function<void(uint32_t, std::span<std::byte>)>> handlers;
@@ -263,12 +264,44 @@ private:
 
   socket_t tcp_sock = invalid_fd;
   socket_t udp_sock = invalid_fd;
-  sockaddr_in server_udp_addr{};
+  sockaddr_storage server_udp_addr{};
+  socklen_t server_udp_addr_len = 0;
   uint32_t client_id = 0;
   
   std::unordered_map<uint8_t, std::function<void(std::span<std::byte>)>> handlers;
   std::function<void()> disconnect_callback;
   std::jthread receiver_thread;
 };
+
+// ============================================================
+// UPnP Port Forwarding (RAII wrapper around miniupnpc)
+// ============================================================
+struct PortMapping {
+    uint16_t port;
+    Protocol protocol;
+    std::string description;
+};
+
+class UPnP {
+public:
+    UPnP() = default;
+    UPnP(std::initializer_list<PortMapping> mappings);
+    ~UPnP();
+
+    UPnP(const UPnP&) = delete;
+    UPnP& operator=(const UPnP&) = delete;
+    UPnP(UPnP&&) noexcept;
+    UPnP& operator=(UPnP&&) noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+    std::vector<PortMapping> mappings_;
+};
+
+// ============================================================
+// Utility
+// ============================================================
+std::string get_local_ip();
 
 } // namespace ezsock

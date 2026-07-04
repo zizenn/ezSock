@@ -1,8 +1,9 @@
+# Build output
+build/
+*.o
+
 # Devenv
 .devenv*
 devenv.local.nix
 devenv.local.yaml
 .pre-commit-config.yaml
-
-# game
-/ezsock

@@ -1,22 +1,41 @@
 #include "ezSock.hpp"
-#include <iostream>
 #include <algorithm>
+#include <cstring>
+#include <iostream>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
+
+extern "C" {
+#include "miniupnpc.h"
+#include "upnpcommands.h"
+#include "upnperrors.h"
+}
 
 namespace ezsock {
 
 // --- Server Implementation ---
 
 void Server::start_tcp(uint16_t port) {
-    tcp_listener = ::socket(AF_INET, SOCK_STREAM, 0);
+    tcp_listener = ::socket(AF_INET6, SOCK_STREAM, 0);
     if (tcp_listener == invalid_fd) throw_error("TCP listener creation failed");
+
+    int off = 0;
+    ::setsockopt(tcp_listener, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
 
     int opt = 1;
     ::setsockopt(tcp_listener, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    sockaddr_in6 addr{};
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(port);
+    addr.sin6_addr = in6addr_any;
 
     if (::bind(tcp_listener, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         close_fd(tcp_listener);
@@ -37,13 +56,16 @@ void Server::start_tcp(uint16_t port) {
 }
 
 void Server::start_udp(uint16_t port) {
-    udp_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
+    udp_socket = ::socket(AF_INET6, SOCK_DGRAM, 0);
     if (udp_socket == invalid_fd) throw_error("UDP socket creation failed");
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    int off = 0;
+    ::setsockopt(udp_socket, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+
+    sockaddr_in6 addr{};
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(port);
+    addr.sin6_addr = in6addr_any;
 
     if (::bind(udp_socket, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         close_fd(udp_socket);
@@ -138,11 +160,17 @@ void Server::receiver_loop(std::stop_token stop) {
             }
             socket_t client_fd = ::accept(tcp_listener, nullptr, nullptr);
             if (client_fd != invalid_fd) {
-                sockaddr_in addr{};
-                socklen_t addr_len = sizeof(addr);
-                if (::getpeername(client_fd, (struct sockaddr*)&addr, &addr_len) == 0) {
-                    char ip_str[INET_ADDRSTRLEN];
-                    inet_ntop(AF_INET, &addr.sin_addr, ip_str, INET_ADDRSTRLEN);
+                sockaddr_storage peer{};
+                socklen_t peer_len = sizeof(peer);
+                if (::getpeername(client_fd, (struct sockaddr*)&peer, &peer_len) == 0) {
+                    char ip_str[INET6_ADDRSTRLEN];
+                    if (peer.ss_family == AF_INET) {
+                        auto *p4 = reinterpret_cast<sockaddr_in*>(&peer);
+                        inet_ntop(AF_INET, &p4->sin_addr, ip_str, socklen_t(sizeof(ip_str)));
+                    } else {
+                        auto *p6 = reinterpret_cast<sockaddr_in6*>(&peer);
+                        inet_ntop(AF_INET6, &p6->sin6_addr, ip_str, socklen_t(sizeof(ip_str)));
+                    }
                     if (banned_ips.contains(ip_str)) {
                         close_fd(client_fd);
                         continue;
@@ -170,7 +198,7 @@ void Server::receiver_loop(std::stop_token stop) {
         }
 
         if (udp_socket != invalid_fd && FD_ISSET(udp_socket, &read_fds)) {
-            sockaddr_in from{};
+            sockaddr_storage from{};
             socklen_t from_len = sizeof(from);
             int n = ::recvfrom(udp_socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0, (struct sockaddr*)&from, &from_len);
             if (n > 0) {
@@ -258,7 +286,7 @@ void Server::sender_loop(std::stop_token stop) {
         } else {
             std::lock_guard<std::mutex> lock(clients_mutex);
             if (udp_clients.contains(packet.target_id)) {
-                sockaddr_in addr = udp_clients[packet.target_id];
+                sockaddr_storage addr = udp_clients[packet.target_id];
                 ::sendto(udp_socket, reinterpret_cast<const char*>(packet.data.data()), 
                         packet.data.size(), 0, (struct sockaddr*)&addr, sizeof(addr));
             }
@@ -281,11 +309,17 @@ std::string Server::ban(uint32_t id) {
         std::lock_guard<std::mutex> lock(clients_mutex);
         if (tcp_clients.contains(id)) {
             socket_t fd = tcp_clients[id];
-            sockaddr_in addr{};
-            socklen_t addr_len = sizeof(addr);
-            if (::getpeername(fd, (struct sockaddr*)&addr, &addr_len) == 0) {
-                char ip_str[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &addr.sin_addr, ip_str, INET_ADDRSTRLEN);
+            sockaddr_storage peer{};
+            socklen_t peer_len = sizeof(peer);
+            if (::getpeername(fd, (struct sockaddr*)&peer, &peer_len) == 0) {
+                char ip_str[INET6_ADDRSTRLEN];
+                if (peer.ss_family == AF_INET) {
+                    auto *p4 = reinterpret_cast<sockaddr_in*>(&peer);
+                    inet_ntop(AF_INET, &p4->sin_addr, ip_str, socklen_t(sizeof(ip_str)));
+                } else {
+                    auto *p6 = reinterpret_cast<sockaddr_in6*>(&peer);
+                    inet_ntop(AF_INET6, &p6->sin6_addr, ip_str, socklen_t(sizeof(ip_str)));
+                }
                 ip = ip_str;
             }
         }
@@ -304,35 +338,96 @@ void Server::unban_ip(std::string ip) {
 void Client::join(std::string_view tcp_addr, std::string_view udp_addr, std::span<const std::byte> metadata) {
     std::string t_ip, u_ip;
     uint16_t t_port, u_port;
+
     auto parse = [](std::string_view addr, std::string& ip, uint16_t& port) {
-        size_t colon = addr.find(':');
-        if (colon == std::string_view::npos) throw std::runtime_error("Invalid address");
-        ip = std::string(addr.substr(0, colon));
-        port = static_cast<uint16_t>(std::stoi(std::string(addr.substr(colon + 1))));
+        if (addr.front() == '[') {
+            auto close = addr.find(']');
+            if (close == std::string_view::npos)
+                throw std::runtime_error("Invalid IPv6 address (missing ']')");
+            ip = addr.substr(1, close - 1);
+            if (close + 1 >= addr.size() || addr[close + 1] != ':')
+                throw std::runtime_error("Invalid IPv6 address (missing port after ']:')");
+            port = static_cast<uint16_t>(std::stoi(std::string(addr.substr(close + 2))));
+        } else {
+            auto colon = addr.rfind(':');
+            if (colon == std::string_view::npos || colon == 0)
+                throw std::runtime_error("Invalid address");
+            ip = addr.substr(0, colon);
+            port = static_cast<uint16_t>(std::stoi(std::string(addr.substr(colon + 1))));
+        }
     };
     parse(tcp_addr, t_ip, t_port);
     parse(udp_addr, u_ip, u_port);
-    tcp_sock = ::socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in t_addr{};
-    t_addr.sin_family = AF_INET;
-    t_addr.sin_port = htons(t_port);
-    inet_pton(AF_INET, t_ip.c_str(), &t_addr.sin_addr);
-    if (::connect(tcp_sock, (struct sockaddr*)&t_addr, sizeof(t_addr)) == -1) throw_error("TCP connect failed");
+
+    auto detect_family = [](const std::string& ip) -> int {
+        unsigned char buf[sizeof(in6_addr)];
+        if (inet_pton(AF_INET6, ip.c_str(), buf) == 1) return AF_INET6;
+        if (inet_pton(AF_INET, ip.c_str(), buf) == 1) return AF_INET;
+        return AF_UNSPEC;
+    };
+
+    auto setup_addr = [](sockaddr_storage& addr, socklen_t& len,
+                          const std::string& ip, uint16_t port, int family) {
+        if (family == AF_INET6) {
+            addr.ss_family = AF_INET6;
+            auto *a6 = reinterpret_cast<sockaddr_in6*>(&addr);
+            a6->sin6_port = htons(port);
+            inet_pton(AF_INET6, ip.c_str(), &a6->sin6_addr);
+            len = sizeof(sockaddr_in6);
+        } else {
+            addr.ss_family = AF_INET;
+            auto *a4 = reinterpret_cast<sockaddr_in*>(&addr);
+            a4->sin_port = htons(port);
+            inet_pton(AF_INET, ip.c_str(), &a4->sin_addr);
+            len = sizeof(sockaddr_in);
+        }
+    };
+
+    // --- TCP connect ---
+    int tcp_family = detect_family(t_ip);
+    if (tcp_family == AF_UNSPEC)
+        throw std::runtime_error("Invalid TCP server IP: " + t_ip);
+
+    tcp_sock = ::socket(tcp_family, SOCK_STREAM, 0);
+    if (tcp_sock == invalid_fd) throw_error("TCP socket creation failed");
+
+    sockaddr_storage t_peer{};
+    socklen_t t_peer_len = 0;
+    setup_addr(t_peer, t_peer_len, t_ip, t_port, tcp_family);
+    if (::connect(tcp_sock, (struct sockaddr*)&t_peer, t_peer_len) == -1)
+        throw_error("TCP connect failed");
+
     if (!metadata.empty()) {
         ::send(tcp_sock, reinterpret_cast<const char*>(metadata.data()), metadata.size(), 0);
     }
-    udp_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
-    sockaddr_in client_udp_bind{};
-    client_udp_bind.sin_family = AF_INET;
-    client_udp_bind.sin_port = htons(0);
-    client_udp_bind.sin_addr.s_addr = INADDR_ANY;
-    if (::bind(udp_sock, (struct sockaddr*)&client_udp_bind, sizeof(client_udp_bind)) == -1) {
+
+    // --- UDP socket ---
+    int udp_family = detect_family(u_ip);
+    if (udp_family == AF_UNSPEC)
+        throw std::runtime_error("Invalid UDP server IP: " + u_ip);
+
+    udp_sock = ::socket(udp_family, SOCK_DGRAM, 0);
+    if (udp_sock == invalid_fd) throw_error("UDP socket creation failed");
+
+    sockaddr_storage udp_bind{};
+    socklen_t udp_bind_len = 0;
+    if (udp_family == AF_INET6) {
+        udp_bind.ss_family = AF_INET6;
+        reinterpret_cast<sockaddr_in6*>(&udp_bind)->sin6_addr = in6addr_any;
+        reinterpret_cast<sockaddr_in6*>(&udp_bind)->sin6_port = htons(0);
+        udp_bind_len = sizeof(sockaddr_in6);
+    } else {
+        udp_bind.ss_family = AF_INET;
+        reinterpret_cast<sockaddr_in*>(&udp_bind)->sin_addr.s_addr = INADDR_ANY;
+        reinterpret_cast<sockaddr_in*>(&udp_bind)->sin_port = htons(0);
+        udp_bind_len = sizeof(sockaddr_in);
+    }
+    if (::bind(udp_sock, (struct sockaddr*)&udp_bind, udp_bind_len) == -1) {
         close_fd(udp_sock);
         throw_error("UDP bind failed");
     }
-    server_udp_addr.sin_family = AF_INET;
-    server_udp_addr.sin_port = htons(u_port);
-    inet_pton(AF_INET, u_ip.c_str(), &server_udp_addr.sin_addr);
+
+    setup_addr(server_udp_addr, server_udp_addr_len, u_ip, u_port, udp_family);
 }
 
 void Client::send_internal(Protocol proto, uint8_t type, std::span<const std::byte> data) {
@@ -350,7 +445,7 @@ void Client::send_internal(Protocol proto, uint8_t type, std::span<const std::by
         udp_packet.insert(udp_packet.end(), id_bytes, id_bytes + 4);
         udp_packet.insert(udp_packet.end(), payload.begin(), payload.end());
         ::sendto(udp_sock, reinterpret_cast<const char*>(udp_packet.data()), udp_packet.size(), 0, 
-                (struct sockaddr*)&server_udp_addr, sizeof(server_udp_addr));
+                (struct sockaddr*)&server_udp_addr, server_udp_addr_len);
     }
 }
 
@@ -403,6 +498,133 @@ void Client::start(size_t buffer_size) {
             }
         }
     });
+}
+
+// ============================================================
+// UPnP Implementation
+// ============================================================
+struct UPnP::Impl {
+    UPNPUrls urls = {};
+    IGDdatas data = {};
+    char lan_addr[64] = {};
+    int discovery_delay = 2000;
+};
+
+UPnP::UPnP(std::initializer_list<PortMapping> mappings)
+    : impl_(std::make_unique<Impl>())
+    , mappings_(mappings)
+{
+    UPNPDev *devlist = upnpDiscover(impl_->discovery_delay, nullptr, nullptr, 0, 0, 2, nullptr);
+    if (!devlist)
+        throw std::runtime_error("UPnP: No IGD device found (discovery failed)");
+
+    int igd = UPNP_GetValidIGD(devlist, &impl_->urls, &impl_->data,
+                                impl_->lan_addr, sizeof(impl_->lan_addr),
+                                nullptr, 0);
+    freeUPNPDevlist(devlist);
+
+    if (igd != 1)
+        throw std::runtime_error("UPnP: No valid Internet Gateway Device found");
+
+    for (auto& m : mappings_) {
+        const char *proto = (m.protocol == Protocol::TCP) ? "TCP" : "UDP";
+        int r = UPNP_AddPortMapping(impl_->urls.controlURL, impl_->data.first.servicetype,
+                                    std::to_string(m.port).c_str(),
+                                    std::to_string(m.port).c_str(),
+                                    impl_->lan_addr,
+                                    m.description.c_str(),
+                                    proto, nullptr, nullptr);
+        if (r != 0) {
+            std::string err = strupnperror(r);
+            throw std::runtime_error("UPnP: Failed to forward port " +
+                                     std::to_string(m.port) + "/" + proto + ": " + err);
+        }
+    }
+}
+
+UPnP::~UPnP() {
+    if (!impl_) return;
+    for (auto& m : mappings_) {
+        const char *proto = (m.protocol == Protocol::TCP) ? "TCP" : "UDP";
+        UPNP_DeletePortMapping(impl_->urls.controlURL, impl_->data.first.servicetype,
+                               std::to_string(m.port).c_str(), proto, nullptr);
+    }
+    FreeUPNPUrls(&impl_->urls);
+}
+
+UPnP::UPnP(UPnP&&) noexcept = default;
+UPnP& UPnP::operator=(UPnP&&) noexcept = default;
+
+// ============================================================
+// get_local_ip
+// ============================================================
+std::string get_local_ip() {
+#ifdef _WIN32
+    std::string ip = "127.0.0.1";
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_PASSIVE;
+    addrinfo *result = nullptr;
+    if (getaddrinfo(nullptr, nullptr, &hints, &result) != 0)
+        return ip;
+    for (addrinfo *rp = result; rp; rp = rp->ai_next) {
+        char buf[INET6_ADDRSTRLEN];
+        if (rp->ai_family == AF_INET) {
+            auto *sa = reinterpret_cast<sockaddr_in*>(rp->ai_addr);
+            inet_ntop(AF_INET, &sa->sin_addr, buf, socklen_t(sizeof(buf)));
+            if (std::strcmp(buf, "127.0.0.1") != 0) {
+                ip = buf; break;
+            }
+        }
+    }
+    if (ip == "127.0.0.1") {
+        for (addrinfo *rp = result; rp; rp = rp->ai_next) {
+            char buf[INET6_ADDRSTRLEN];
+            if (rp->ai_family == AF_INET6) {
+                auto *sa6 = reinterpret_cast<sockaddr_in6*>(rp->ai_addr);
+                inet_ntop(AF_INET6, &sa6->sin6_addr, buf, socklen_t(sizeof(buf)));
+                if (std::strcmp(buf, "::1") != 0) {
+                    ip = buf; break;
+                }
+            }
+        }
+    }
+    freeaddrinfo(result);
+    return ip;
+#else
+    std::string ip = "127.0.0.1";
+    ifaddrs *ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) == -1) return ip;
+    for (ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+            continue;
+        if (std::strcmp(ifa->ifa_name, "lo") == 0)
+            continue;
+        auto *sa = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
+        char buf[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET, &sa->sin_addr, buf, socklen_t(sizeof(buf)));
+        if (std::strcmp(buf, "127.0.0.1") != 0) {
+            ip = buf; break;
+        }
+    }
+    if (ip == "127.0.0.1") {
+        for (ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6)
+                continue;
+            if (std::strcmp(ifa->ifa_name, "lo") == 0)
+                continue;
+            auto *sa6 = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
+            char buf[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, &sa6->sin6_addr, buf, socklen_t(sizeof(buf)));
+            if (std::strcmp(buf, "::1") != 0) {
+                ip = buf; break;
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+    return ip;
+#endif
 }
 
 } // namespace ezsock

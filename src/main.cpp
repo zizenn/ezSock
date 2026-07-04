@@ -4,16 +4,13 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
-
-#include <ifaddrs.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 using namespace ezsock;
 
@@ -39,23 +36,8 @@ struct PosUpdate {
 // ============================================================
 // SERVER
 // ============================================================
-std::string get_local_ip() {
-    std::string ip = "127.0.0.1";
-    ifaddrs *ifaddr = nullptr;
-    if (getifaddrs(&ifaddr) == -1) return ip;
-    for (ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
-        if (std::strcmp(ifa->ifa_name, "lo") == 0) continue;
-        sockaddr_in *sa = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
-        char buf[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf));
-        if (std::strcmp(buf, "127.0.0.1") != 0) { ip = buf; break; }
-    }
-    freeifaddrs(ifaddr);
-    return ip;
-}
 
-void run_server() {
+void run_server(bool use_upnp = false) {
     std::unordered_map<uint32_t, std::string> players;
     std::mutex players_mtx;
 
@@ -162,6 +144,19 @@ void run_server() {
     server.start_tcp(8080);
     server.start_udp(8081);
     server.set_metadata_buffer_size(256);
+
+    std::optional<UPnP> upnp;
+    if (use_upnp) {
+        try {
+            upnp.emplace(std::initializer_list<PortMapping>{
+                {8080, Protocol::TCP, "ezSock TCP"},
+                {8081, Protocol::UDP, "ezSock UDP"},
+            });
+            std::cout << "[UPnP] Ports 8080/8081 forwarded" << std::endl;
+        } catch (std::exception const& e) {
+            std::cout << "[UPnP] " << e.what() << std::endl;
+        }
+    }
 
     std::string srv_ip = get_local_ip();
     std::cout << "\n=== ezSock Game Server ===" << std::endl;
@@ -273,18 +268,20 @@ void run_client(std::string name, std::string server_ip = "127.0.0.1") {
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cout << "Usage:\n"
-                  << "  " << argv[0] << " server\n"
+                  << "  " << argv[0] << " server [--upnp]\n"
                   << "  " << argv[0] << " client <name> [server_ip]\n"
                   << "\n"
                   << "Examples:\n"
                   << "  " << argv[0] << " server\n"
+                  << "  " << argv[0] << " server --upnp\n"
                   << "  " << argv[0] << " client Alice\n"
                   << "  " << argv[0] << " client Bob 192.168.1.100\n";
         return 1;
     }
     std::string mode(argv[1]);
     if (mode == "server") {
-        run_server();
+        bool use_upnp = argc >= 3 && std::string(argv[2]) == "--upnp";
+        run_server(use_upnp);
     } else if (mode == "client" && argc >= 3) {
         std::string ip = (argc >= 4) ? argv[3] : "127.0.0.1";
         run_client(argv[2], ip);
