@@ -1,5 +1,5 @@
-CXX = g++
-CC = gcc
+CXX = clang++
+CC = clang
 CXXFLAGS = -std=c++23 -Iinclude -Iminiupnp -Wall -Wextra -O2
 CFLAGS = -Iinclude -Iminiupnp -Wall -Wextra -O2
 
@@ -38,4 +38,4 @@ $(OBJ_DIR)/$(MINIUPNP_DIR)/%.o: $(MINIUPNP_DIR)/%.c
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all clean
+.PHONY: all clean compiledb

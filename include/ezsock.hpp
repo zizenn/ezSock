@@ -1,12 +1,6 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <filesystem>
-#include <string_view>
 #include <system_error>
-#include <utility>
-#include <vector>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -50,7 +44,7 @@ struct WsaGuard {
       }
       ~WsaGuard() { WSACleanup(); }
 };
-inline WsaGuard _wsa_guard; // C++17 inline variable prevents duplicate symbols
+inline WsaGuard _wsa_guard;
 } // namespace detail
 #endif
 
