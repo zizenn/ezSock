@@ -1,4 +1,5 @@
 #include "ezsock.hpp"
+#include <utility>
 
 namespace ezsock {
 

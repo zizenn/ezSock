@@ -5,8 +5,11 @@
 # Generated compilation database (contains absolute Nix store paths)
 compile_commands.json
 
-# Devenv
+# devenv
 .devenv*
 /devenv.nix
 /devenv.yaml
 /devenv.lock
+
+# clangd
+/.clangd
