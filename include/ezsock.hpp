@@ -35,6 +35,7 @@ inline void close_fd(socket_t s) { ::close(s); }
       throw std::system_error(get_error(), std::system_category(), what);
 }
 
+// auto init and deinit winsock on windows (u dont gotta do nothin)
 #ifdef _WIN32
 namespace detail {
 struct WsaGuard {
@@ -76,6 +77,9 @@ public:
       // functions
       void SetNonBlocking(bool nonBlocking) { nonBlocking_ = nonBlocking; }
       void Close();
+
+      // network calls
+      void Bind(const std::string &address, uint16_t port);
 };
 
 } // namespace ezsock
